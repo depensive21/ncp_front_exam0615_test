@@ -8,9 +8,17 @@ function App() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+
+  // API 요청 실패 시 화면에 보여줄 메시지입니다.
   const [errorMessage, setErrorMessage] = useState("");
 
+  // API 요청 실패 후 무한스크롤이 계속 실행되지 않도록 막는 값입니다.
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  // 카드 클릭 시 모달에 보여줄 다이어리 상세 데이터입니다.
   const [selected, setSelected] = useState(null);
+
+  // 모달 표시 여부입니다.
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const [form, setForm] = useState({
@@ -30,9 +38,11 @@ function App() {
   const loaderRef = useRef(null);
 
   async function loadDiaries(nextPage = 0) {
-    if (loading || (!hasMore && nextPage !== 0)) return;
+    if (loading || loadFailed || (!hasMore && nextPage !== 0)) return;
 
     setLoading(true);
+
+    // 새로 조회를 시도할 때 이전 에러 메시지를 지웁니다.
     setErrorMessage("");
 
     try {
@@ -54,10 +64,18 @@ function App() {
 
       setHasMore(data.hasMore);
       setPage(nextPage);
+
+      // 정상 조회되면 실패 상태를 해제합니다.
+      setLoadFailed(false);
     } catch (error) {
       console.error(error);
+
+      // 실패 상태로 바꿔서 무한스크롤이 같은 요청을 반복하지 않게 합니다.
+      setLoadFailed(true);
+      setHasMore(false);
+
       setErrorMessage(
-        "다이어리 목록을 불러오지 못했습니다. 백엔드 서버 또는 DB 연결을 확인하세요.",
+        "다이어리 목록을 불러오지 못했습니다. 백엔드 서버 또는 Nginx proxy 설정을 확인하세요.",
       );
     } finally {
       setLoading(false);
@@ -66,26 +84,34 @@ function App() {
 
   async function loadDetail(id) {
     try {
-      const response = await fetch(`${API_BASE_URL}/diaries/${id}`);
-      const data = await response.json();
+      const res = await fetch(`${API_BASE_URL}/diaries/${id}`);
+
+      if (!res.ok) {
+        throw new Error("다이어리 상세 조회 실패");
+      }
+
+      const data = await res.json();
 
       setSelected(data);
+
       setEditForm({
         title: data.title,
         diaryDate: data.diary_date,
         content: data.content,
         file: null,
       });
+
       setIsModalOpen(true);
     } catch (error) {
-      console.error("다이어리 상세 조회 실패:", error);
-      alert("다이어리 상세 내용을 불러오지 못했습니다.");
+      console.error(error);
+      setErrorMessage("다이어리 상세 정보를 불러오지 못했습니다.");
     }
   }
 
   function closeModal() {
     setIsModalOpen(false);
     setSelected(null);
+
     setEditForm({
       title: "",
       diaryDate: "",
@@ -94,8 +120,8 @@ function App() {
     });
   }
 
-  async function createDiary(event) {
-    event.preventDefault();
+  async function createDiary(e) {
+    e.preventDefault();
 
     const body = new FormData();
     body.append("title", form.title);
@@ -107,10 +133,14 @@ function App() {
     }
 
     try {
-      await fetch(`${API_BASE_URL}/diaries`, {
+      const res = await fetch(`${API_BASE_URL}/diaries`, {
         method: "POST",
         body,
       });
+
+      if (!res.ok) {
+        throw new Error("다이어리 저장 실패");
+      }
 
       setForm({
         title: "",
@@ -119,15 +149,17 @@ function App() {
         file: null,
       });
 
+      setLoadFailed(false);
+      setHasMore(true);
       await loadDiaries(0);
     } catch (error) {
-      console.error("다이어리 작성 실패:", error);
-      alert("다이어리 작성에 실패했습니다.");
+      console.error(error);
+      setErrorMessage("다이어리를 저장하지 못했습니다.");
     }
   }
 
-  async function updateDiary(event) {
-    event.preventDefault();
+  async function updateDiary(e) {
+    e.preventDefault();
 
     if (!selected) return;
 
@@ -141,17 +173,23 @@ function App() {
     }
 
     try {
-      await fetch(`${API_BASE_URL}/diaries/${selected.id}`, {
+      const res = await fetch(`${API_BASE_URL}/diaries/${selected.id}`, {
         method: "PUT",
         body,
       });
 
+      if (!res.ok) {
+        throw new Error("다이어리 수정 실패");
+      }
+
       await loadDetail(selected.id);
+
+      setLoadFailed(false);
+      setHasMore(true);
       await loadDiaries(0);
-      alert("수정되었습니다.");
     } catch (error) {
-      console.error("다이어리 수정 실패:", error);
-      alert("다이어리 수정에 실패했습니다.");
+      console.error(error);
+      setErrorMessage("다이어리를 수정하지 못했습니다.");
     }
   }
 
@@ -159,16 +197,30 @@ function App() {
     if (!confirm("정말 삭제하시겠습니까?")) return;
 
     try {
-      await fetch(`${API_BASE_URL}/diaries/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/diaries/${id}`, {
         method: "DELETE",
       });
 
+      if (!res.ok) {
+        throw new Error("다이어리 삭제 실패");
+      }
+
       closeModal();
+
+      setLoadFailed(false);
+      setHasMore(true);
       await loadDiaries(0);
     } catch (error) {
-      console.error("다이어리 삭제 실패:", error);
-      alert("다이어리 삭제에 실패했습니다.");
+      console.error(error);
+      setErrorMessage("다이어리를 삭제하지 못했습니다.");
     }
+  }
+
+  function retryLoadDiaries() {
+    setLoadFailed(false);
+    setHasMore(true);
+    setPage(0);
+    loadDiaries(0);
   }
 
   useEffect(() => {
@@ -177,7 +229,9 @@ function App() {
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore && !loading) {
+      const isVisible = entries[0].isIntersecting;
+
+      if (isVisible && hasMore && !loading && !loadFailed) {
         loadDiaries(page + 1);
       }
     });
@@ -187,7 +241,7 @@ function App() {
     }
 
     return () => observer.disconnect();
-  }, [page, hasMore, loading]);
+  }, [page, hasMore, loading, loadFailed]);
 
   return (
     <div className="container py-4">
@@ -209,9 +263,7 @@ function App() {
                   className="form-control mb-2"
                   placeholder="제목"
                   value={form.title}
-                  onChange={(event) =>
-                    setForm({ ...form, title: event.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, title: e.target.value })}
                   required
                 />
 
@@ -219,8 +271,8 @@ function App() {
                   className="form-control mb-2"
                   type="date"
                   value={form.diaryDate}
-                  onChange={(event) =>
-                    setForm({ ...form, diaryDate: event.target.value })
+                  onChange={(e) =>
+                    setForm({ ...form, diaryDate: e.target.value })
                   }
                   required
                 />
@@ -230,8 +282,8 @@ function App() {
                   rows="6"
                   placeholder="내용"
                   value={form.content}
-                  onChange={(event) =>
-                    setForm({ ...form, content: event.target.value })
+                  onChange={(e) =>
+                    setForm({ ...form, content: e.target.value })
                   }
                   required
                 />
@@ -239,14 +291,12 @@ function App() {
                 <input
                   className="form-control mb-3"
                   type="file"
-                  onChange={(event) =>
-                    setForm({ ...form, file: event.target.files[0] })
+                  onChange={(e) =>
+                    setForm({ ...form, file: e.target.files[0] })
                   }
                 />
 
-                <button className="btn btn-primary w-100" type="submit">
-                  저장
-                </button>
+                <button className="btn btn-primary w-100">저장</button>
               </form>
             </div>
           </div>
@@ -254,6 +304,20 @@ function App() {
 
         <section className="col-lg-7">
           <h2 className="h5 fw-bold mb-3">다이어리 목록</h2>
+
+          {errorMessage && (
+            <div className="alert alert-warning" role="alert">
+              <div className="mb-2">{errorMessage}</div>
+
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-dark"
+                onClick={retryLoadDiaries}
+              >
+                다시 불러오기
+              </button>
+            </div>
+          )}
 
           <div className="row g-3">
             {diaries.map((diary) => (
@@ -281,9 +345,11 @@ function App() {
           <div ref={loaderRef} className="text-center text-muted py-4">
             {loading
               ? "불러오는 중..."
-              : hasMore
-                ? "스크롤하면 더 불러옵니다."
-                : "마지막 글입니다."}
+              : loadFailed
+                ? "목록 조회가 중단되었습니다."
+                : hasMore
+                  ? "스크롤하면 더 불러옵니다."
+                  : "마지막 글입니다."}
           </div>
         </section>
       </div>
@@ -317,8 +383,8 @@ function App() {
                     <input
                       className="form-control mb-2"
                       value={editForm.title}
-                      onChange={(event) =>
-                        setEditForm({ ...editForm, title: event.target.value })
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, title: e.target.value })
                       }
                       required
                     />
@@ -327,11 +393,8 @@ function App() {
                       className="form-control mb-2"
                       type="date"
                       value={editForm.diaryDate}
-                      onChange={(event) =>
-                        setEditForm({
-                          ...editForm,
-                          diaryDate: event.target.value,
-                        })
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, diaryDate: e.target.value })
                       }
                       required
                     />
@@ -340,11 +403,8 @@ function App() {
                       className="form-control mb-2"
                       rows="8"
                       value={editForm.content}
-                      onChange={(event) =>
-                        setEditForm({
-                          ...editForm,
-                          content: event.target.value,
-                        })
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, content: e.target.value })
                       }
                       required
                     />
@@ -352,11 +412,8 @@ function App() {
                     <input
                       className="form-control mb-3"
                       type="file"
-                      onChange={(event) =>
-                        setEditForm({
-                          ...editForm,
-                          file: event.target.files[0],
-                        })
+                      onChange={(e) =>
+                        setEditForm({ ...editForm, file: e.target.files[0] })
                       }
                     />
 
