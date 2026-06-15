@@ -5,10 +5,13 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # 리액트 빌드된 정적 웹페이지 경로
     location / {
         try_files $uri /index.html;
     }
 
+    # 프라이빗 서버의 노드js 서버로 치환해서 보내는 경로
+    # 우분투의 환경변수 접근법 : ${환경변수명} 
     location /api/ {
         proxy_pass http://${BACKEND_HOST}:3000/api/;
         proxy_http_version 1.1;
