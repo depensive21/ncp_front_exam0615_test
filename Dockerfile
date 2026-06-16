@@ -19,11 +19,11 @@ RUN npm run build
 FROM nginx:alpine
 
 # nginx 실행시 백엔드 호스트에 환경변수주입
-WORKDIR BACKEND_HOST = ${BACKEND_HOST}
+# env BACKEND_HOST = ${BACKEND_HOST}
 
 # nginx 설정 템플릿 파일을 conf.d 폴더로 속사
-# default.conf.template -> default.conf 로 자동치환
-COPY nginx/default.conf.template /etc/nginx/conf.d/default.conf.template
+# default.conf.template -> conf.d폴더 내 default.conf 로 자동치환
+COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 
 # 노드 이미지 빌드과정에서 생성된 리액트 정적 폴더 /dist를 
 # nginx의 html 폴더로 복사
